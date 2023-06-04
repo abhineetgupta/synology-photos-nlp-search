@@ -1,0 +1,32 @@
+# location of directory on host containing photos and embeddings pkl file
+PHOTOS_DIR="/absolute/path/to/photos/dir"
+
+# location and name of the pkl file that has the pre-computed embeddings. Path is relative to PHOTOS_DIR.
+EMB_FILE="photos_embeddings.pkl"
+
+# number of images that will be processed at a time. Start with a small power of 2 number and increase until process does not exceed memory.
+EMB_BATCH=16
+
+# batch size for running the transformer model. Start with a small power of 2 number and increase until process does not exceed memory.
+NN_BATCH=4
+
+# number of threads to use by torch. Set to 1 for no parallelization. Suggest EMB_BATCH / NN_BATCH >= TORCH_THREADS
+TORCH_THREADS=2
+
+# Synology hostname
+SYNO_HOST = "1.0.0.1"
+
+# Synology username that has access to the photos directory and Synology Photos
+SYNO_USERNAME="username"
+
+# password for above user. Leaving this empty will prompt for it when running the script
+SYNO_PASSWORD=""
+
+# leave empty if 2fa is not activated for above user, otherwise script will prompt for 2fa code
+SYNO_2FA="true"
+
+# location and name of the log file to store logs. Path is relative to PHOTOS_DIR. Setting to empty will only log to stdout.
+LOG_FILE="syno_smart_search.log"
+
+# verbose level. 0=WARNING, 1=INFO, 2=DEBUG
+VERBOSE=1

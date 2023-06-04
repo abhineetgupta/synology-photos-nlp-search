@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  synosearch:
+    build: .
+    image: abhineetgupta/synosearch
+    container_name: synosearch
+    environment:
+      - DEST_MOUNT_DIR=/photos
+      - ST_MODEL=clip-ViT-B-32
+      - DEFAULT_K=100
+      - SYNO_USERNAME=${SYNO_USERNAME}
+      - SYNO_PASSWORD=${SYNO_PASSWORD}
+      - SYNO_2FA=${SYNO_2FA}
+    volumes:
+      - ${PHOTOS_DIR}:/photos
+    entrypoint: ["python3", "-m",
+              "syno_smart_search", 
+              "--emb_file", "${EMB_FILE}",
+              "--emb_batch", "${EMB_BATCH}",
+              "--nn_batch", "${NN_BATCH}",
+              "--torch_threads", "${TORCH_THREADS}",
+              "--syno_host", "${SYNO_HOST}",
+              "--log_file", "${LOG_FILE}",
+              "--verbose", "${VERBOSE}"
+              ]
+
+# docker-compose run --build synosearch
