@@ -269,26 +269,27 @@ def main():
         default=1,
         help="verbose level for the log file. 0 = warning, 1 = info, 2 = debug",
     )
+    # TODO - change no_reindex to update_embeddings
     parser.add_argument(
-        "--no_reindex",
+        "--no_index",
         required=False,
         default=False,
         action="store_true",
-        help="skip reindexing to create embeddings for any recent images before searching",
+        help="skip indexing to create embeddings for any recent images before searching",
     )
     parser.add_argument(
-        "--no_search",
+        "--update_embeddings",
         required=False,
         default=False,
         action="store_true",
-        help="skip searching workflow. useful to only perform reindexing",
+        help="only update embeddings, skipping all other tasks",
     )
     parser.add_argument(
         "--delete_tags",
         required=False,
         default=False,
         action="store_true",
-        help="use the script only to delete tags",
+        help="only delete tags, skipping all other tasks",
     )
 
     args = parser.parse_args()
@@ -301,8 +302,8 @@ def main():
     max_images = args.max_images
     log_file = args.log_file
     verbose = args.verbose
-    no_reindex = args.no_reindex
-    no_search = args.no_search
+    no_index = args.no_index
+    update_embeddings_only = args.update_embeddings
     delete_tags_only = args.delete_tags
 
     utils.configure_logger(
@@ -345,7 +346,7 @@ def main():
         logger.info(f"Loaded ML embeddings model files.")
 
         # ask user to update embeddings
-        if (not no_reindex) and get_user_approval(request="update_embeddings"):
+        if update_embeddings_only or ((not no_index) and get_user_approval(request="update_embeddings")):
             update_embeddings(
                 model,
                 utils.get_absolute_path_in_container(emb_file),
@@ -355,6 +356,8 @@ def main():
                 nn_batch,
                 max_images,
             )
+        if update_embeddings_only:
+            return
 
         # read in embeddings pkl file
         embedded_images = utils.read_emb_file(
@@ -367,12 +370,9 @@ def main():
         image_ids, embeddings = embedded_images["ids"], embedded_images["embeddings"]
 
         # start search
-        perform_search = True
-        if no_search or (not get_user_approval(request="search_embeddings")):
-            perform_search = False
+        if not get_user_approval(request="search_embeddings"):
+            return
         while True:
-            if not perform_search:
-                break
             # get search term from user
             query, k = get_user_query()
             if not query:
