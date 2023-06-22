@@ -45,6 +45,44 @@ def get_absolute_path_in_container(rel_path: str, validate_path: bool = False):
     raise ValueError(message)
 
 
+def underlined_choices(choices: list[str]) -> tuple[str, dict[str, str]]:
+    choices_string_list = []
+    underlines = dict()
+    for s in choices:
+        underline_success = False
+        for i in range(len(s)):
+            if s[: (i + 1)] not in underlines:
+                choices_string_list.append(
+                    "\033[4m" + s[: (i + 1)] + "\033[0m" + s[(i + 1) :]
+                )
+                underlines[s[: (i + 1)]] = s
+                underline_success = True
+                break
+
+        if not underline_success:
+            logger.debug(
+                "Due to similarity of some choices, an underlined short-form could not be constructed."
+            )
+            choices_string_list = choices
+            underlines = {s: s for s in choices}
+            break
+    choices_string = " | ".join(choices_string_list)
+    return (choices_string, underlines)
+
+
+def get_user_choice(choices: list[str], prompt: str):
+    choices = [str(s).strip().lower() for s in choices]
+    choices_string, underlines = underlined_choices(choices)
+    user_choice = input(f"{prompt} ({choices_string}) : ")
+    while True:
+        user_choice = user_choice.strip().lower()
+        if user_choice in choices:
+            return user_choice
+        if user_choice in underlines:
+            return underlines[user_choice]
+        user_choice = input(f"Please select a valid option ({choices_string}) : ")
+
+
 def read_emb_file(emb_file: str):
     if os.path.exists(emb_file):
         with open(emb_file, "rb") as fIn:

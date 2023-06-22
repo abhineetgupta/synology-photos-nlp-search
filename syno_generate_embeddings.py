@@ -80,7 +80,7 @@ def add_embeddings(
         )
     if emb_batch and (max_images is None or max_images > len(scanned_ids)):
         if max_images is not None:
-            n_files = max_images - len(scanned_images)
+            n_files = max_images - len(scanned_ids)
             logger.info(f"Scanning {n_files} new images...")
         else:
             n_files = None
@@ -92,6 +92,17 @@ def add_embeddings(
         return scanned_ids, scanned_paths, scanned_emb
     new_images_dict = get_new_images(image_id_path_dict, scanned_ids, n_files)
     n_new_images = len(new_images_dict)
+    # Confirm whether user would like to generate embeddings if number of new images is large
+    if n_new_images > emb_batch:
+        user_input_embed = utils.get_user_choice(
+            choices=["yes", "no"],
+            prompt=f"It can be time-consuming to create embeddings for the {n_new_images} new images. Do you wish to proceed with embedding these?",
+        )
+        if user_input_embed == "no":
+            logger.info(
+                "Stopping embedding new images. Will only search through already embedded images..."
+            )
+            return
     new_images_embedded = 0
     while len(new_images_dict):
         images_in_batch = min(emb_batch, len(new_images_dict))
@@ -126,7 +137,7 @@ def add_embeddings(
         else:
             scanned_emb = new_img_emb
         logger.info(
-            f"Encoded {images_in_batch} new images for total of {len(scanned_images)} images."
+            f"Encoded {images_in_batch} new images for total of {len(scanned_ids)} images."
         )
 
         utils.overwrite_emb_file(emb_file, scanned_ids, scanned_paths, scanned_emb)

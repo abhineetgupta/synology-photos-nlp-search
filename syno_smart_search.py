@@ -71,62 +71,23 @@ def create_image_path_tree(syno: SynoPhotosSharedAPI) -> dict[int, str]:
     return result
 
 
-def underlined_choices(choices: list[str]) -> tuple[str, dict[str, str]]:
-    choices_string_list = []
-    underlines = dict()
-    for s in choices:
-        underline_success = False
-        for i in range(len(s)):
-            if s[: (i + 1)] not in underlines:
-                choices_string_list.append(
-                    "\033[4m" + s[: (i + 1)] + "\033[0m" + s[(i + 1) :]
-                )
-                underlines[s[: (i + 1)]] = s
-                underline_success = True
-                break
-
-        if not underline_success:
-            logger.debug(
-                "Due to similarity of some choices, an underlined short-form could not be constructed."
-            )
-            choices_string_list = choices
-            underlines = {s: s for s in choices}
-            break
-    choices_string = " | ".join(choices_string_list)
-    return (choices_string, underlines)
-
-
-def get_user_choice(choices: list[str], prompt: str):
-    choices = [str(s).strip().lower() for s in choices]
-    choices_string, underlines = underlined_choices(choices)
-    user_choice = input(f"{prompt} ({choices_string}) : ")
-    while True:
-        user_choice = user_choice.strip().lower()
-        if user_choice in choices:
-            return user_choice
-        if user_choice in underlines:
-            return underlines[user_choice]
-        user_choice = input(f"Please select a valid option ({choices_string}) : ")
-
-
 def get_user_approval(request: str):
     if request == "update_embeddings":
-        result = get_user_choice(
+        result = utils.get_user_choice(
             choices=["yes", "no"],
-            prompt="(time consuming step) Would you like to update image index to include recent images in search?",
+            prompt="Would you like to update image index to include recent images in search?",
         )
     elif request == "search_embeddings":
-        result = get_user_choice(
+        result = utils.get_user_choice(
             choices=["yes", "no"], prompt="Would you like to search through images?"
         )
     else:
-        message = f"'{request}' is not a valid request option."
+        message = f"`{request}` is not a valid request option."
         logger.error(message)
         raise ValueError(message)
     if result == "yes":
         return True
-    if result == "no":
-        return False
+    return False
 
 
 def parse_query(query: str):
@@ -196,26 +157,19 @@ def delete_tags(syno: SynoPhotosSharedAPI, tags: dict[str, int]):
             tag_ids=tags[tag_name]["id"],
         )
         logger.info(
-            f"Tag '{tag_name}' has been removed from all {len(tags[tag_name]['image_ids'])} images."
+            f"Tag `{tag_name}` has been removed from all {len(tags[tag_name]['image_ids'])} images."
         )
 
 
 def user_input_select_and_delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
     tags_to_delete = {}
     for tag in tags_created:
-        option = get_user_choice(
-            choices=["yes", "no"], prompt=f"Would you like to delete tag - {tag}?"
+        option = utils.get_user_choice(
+            choices=["yes", "no"], prompt=f"Would you like to delete tag - `{tag}`?"
         )
         if option == "yes":
             tags_to_delete[tag] = tags_created[tag]
     delete_tags(syno, tags_to_delete)
-
-
-def get_tag_id_dict_from_names(
-    syno: SynoPhotosSharedAPI, tag_names: list[str]
-) -> dict[str, int]:
-    all_tags = syno.get_tag_list()
-    return {t["name"]: t["id"] for t in all_tags if t["name"] in tag_names}
 
 
 def user_input_collect_tag_names():
@@ -233,7 +187,7 @@ def user_input_collect_tag_names():
 
 def user_input_collect_and_delete_tags(syno: SynoPhotosSharedAPI):
     tags_to_delete = None
-    option = get_user_choice(
+    option = utils.get_user_choice(
         choices=["manual", "list"],
         prompt="Would you like to manually enter tags to delete, or list tags in Synology Photos?",
     )
@@ -242,28 +196,22 @@ def user_input_collect_and_delete_tags(syno: SynoPhotosSharedAPI):
         if tag_names_to_delete:
             tags_to_delete = create_tag_image_dict(syno, tag_names=tag_names_to_delete)
             delete_tags(syno, tags_to_delete)
-        return
-    if option == "list":
+    elif option == "list":
         all_tags_dict = create_tag_image_dict(syno, tag_names=None)
         user_input_select_and_delete_tags(syno, all_tags_dict)
-        return
 
 
 def user_input_delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
     if not tags_created:
         return
-    option = get_user_choice(
+    option = utils.get_user_choice(
         choices=["all", "none", "select"],
         prompt="Would you like to delete tags created in this session?",
     )
     if option == "all":
         delete_tags(syno, tags_created)
-        return
-    if option == "none":
-        return
-    if option == "select":
+    elif option == "select":
         user_input_select_and_delete_tags(syno, tags_created)
-        return
 
 
 def main():
@@ -413,7 +361,7 @@ def main():
             utils.get_absolute_path_in_container(emb_file)
         )
         if not embedded_images:
-            message = f"There are no embedded images in {emb_file}"
+            message = f"There are no embedded images in `{emb_file}`"
             logger.error(message)
             raise ValueError(message)
         image_ids, embeddings = embedded_images["ids"], embedded_images["embeddings"]
@@ -441,8 +389,8 @@ def main():
                 tag_search_results(syno, tag_id, results)
                 tags_created[tag_name] = dict(image_ids=results, id=tag_id)
 
-            logger.info(f"Tagged {k} images for '{query}'.")
-            print(f"Search for tag '{tag_name}' in Synology Photos.")
+            logger.info(f"Tagged {k} images for `{query}`.")
+            print(f"Search for tag `{tag_name}` in Synology Photos.")
     except Exception as e:
         logger.error(e)
         raise e
