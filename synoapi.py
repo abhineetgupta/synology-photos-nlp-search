@@ -156,6 +156,7 @@ class SynoPhotosSharedAPI(SynoAPI):
             password=password,
             mfa=mfa,
         )
+        # max number of items to process per API call
         self._PAGINATION_SIZE = 500
 
     def list_param(self, x):
@@ -362,38 +363,48 @@ class SynoPhotosSharedAPI(SynoAPI):
         logger.debug(f"Adding tag={tag_ids} to images={image_ids}...")
         if not self._is_sid_none(self.sid):
             return None
-        response = self.post_api(
-            "SYNO.FotoTeam.Browse.Item",
-            "add_tag",
-            "1",
-            _sid=self.sid,
-            id=self.list_param(image_ids),
-            tag=self.list_param(tag_ids),
-            **kwargs,
-        )
-        response_json = response.json()
-        if not (response_json.get("success", False)):
-            message = f"Adding tags to images request failed with error {response_json['error']['code']}."
-            logger.error(message)
-            raise requests.exceptions.HTTPError(message)
-        logger.debug(f"Added tag={tag_ids} to images={image_ids}.")
+        while len(image_ids):
+            curr_batch = min(self._PAGINATION_SIZE, len(image_ids))
+            logger.debug(f"Adding tags to {curr_batch} images...")
+            images_batch = image_ids[:curr_batch]
+            response = self.post_api(
+                "SYNO.FotoTeam.Browse.Item",
+                "add_tag",
+                "1",
+                _sid=self.sid,
+                id=self.list_param(images_batch),
+                tag=self.list_param(tag_ids),
+                **kwargs,
+            )
+            response_json = response.json()
+            if not (response_json.get("success", False)):
+                message = f"Adding tags to images request failed with error {response_json['error']['code']}."
+                logger.error(message)
+                raise requests.exceptions.HTTPError(message)
+            logger.debug(f"Added tag={tag_ids} to {curr_batch} images.")
+            image_ids = image_ids[curr_batch:]
 
     def remove_tags(self, image_ids: list = [], tag_ids: list = [], **kwargs):
         logger.debug(f"Removing tag={tag_ids} from images={image_ids}...")
         if not self._is_sid_none(self.sid):
             return None
-        response = self.post_api(
-            "SYNO.FotoTeam.Browse.Item",
-            "remove_tag",
-            "1",
-            _sid=self.sid,
-            id=self.list_param(image_ids),
-            tag=self.list_param(tag_ids),
-            **kwargs,
-        )
-        response_json = response.json()
-        if not (response_json.get("success", False)):
-            message = f"Removing tags from images request failed with error {response_json['error']['code']}."
-            logger.error(message)
-            raise requests.exceptions.HTTPError(message)
-        logger.debug(f"Removed tag={tag_ids} from images={image_ids}.")
+        while len(image_ids):
+            curr_batch = min(self._PAGINATION_SIZE, len(image_ids))
+            logger.debug(f"Removing tags from {curr_batch} images...")
+            images_batch = image_ids[:curr_batch]
+            response = self.post_api(
+                "SYNO.FotoTeam.Browse.Item",
+                "remove_tag",
+                "1",
+                _sid=self.sid,
+                id=self.list_param(images_batch),
+                tag=self.list_param(tag_ids),
+                **kwargs,
+            )
+            response_json = response.json()
+            if not (response_json.get("success", False)):
+                message = f"Removing tags from images request failed with error {response_json['error']['code']}."
+                logger.error(message)
+                raise requests.exceptions.HTTPError(message)
+            logger.debug(f"Removed tag={tag_ids} from {curr_batch} images.")
+            image_ids = image_ids[curr_batch:]
