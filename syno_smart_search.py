@@ -22,8 +22,41 @@ def load_model():
     raise ValueError(message)
 
 
-def create_image_path_tree(syno: SynoPhotosSharedAPI):
+def create_tag_image_dict(
+    syno: SynoPhotosSharedAPI, tag_names: list[str] = None
+) -> dict[str, dict]:
+    # append image ids for a dict of tag names
+    logger.info(f"Collecting image list for tags in Synology Photos...")
+    images = syno.get_image_list(additional=syno.list_param(["tag"]))
+    if not images:
+        logger.info("No images were found.")
+        return None
+
+    if not tag_names:
+        # use all tags
+        all_tags = syno.get_tag_list()
+        if not all_tags:
+            logger.info("No tags were found.")
+            return None
+        tag_names = [t["name"] for t in all_tags]
+
+    tag_names = set(tag_names)
+    result = {}
+    # assign image ids to tag ids
+    for image in images:
+        for tag in image["additional"]["tag"]:
+            if tag["name"] in tag_names:
+                if tag["name"] not in result:
+                    result[tag["name"]] = dict(image_ids=[], id=tag["id"])
+                result[tag["name"]]["image_ids"].append(image["id"])
+
+    logger.info(f"Collected image list for tags in Synology Photos.")
+    return result
+
+
+def create_image_path_tree(syno: SynoPhotosSharedAPI) -> dict[int, str]:
     # get files with their filepaths as dict{filepath:id}
+    logger.info(f"Collecting image list in Synology Photos...")
     images = syno.get_image_list(additional=syno.list_param(["folder"]))
     if not images:
         logger.info("No images were found.")
@@ -34,31 +67,66 @@ def create_image_path_tree(syno: SynoPhotosSharedAPI):
         )
         for image in images
     }
+    logger.info(f"Collected image list in Synology Photos.")
     return result
+
+
+def underlined_choices(choices: list[str]) -> tuple[str, dict[str, str]]:
+    choices_string_list = []
+    underlines = dict()
+    for s in choices:
+        underline_success = False
+        for i in range(len(s)):
+            if s[: (i + 1)] not in underlines:
+                choices_string_list.append(
+                    "\033[4m" + s[: (i + 1)] + "\033[0m" + s[(i + 1) :]
+                )
+                underlines[s[: (i + 1)]] = s
+                underline_success = True
+                break
+
+        if not underline_success:
+            logger.debug(
+                "Due to similarity of some choices, an underlined short-form could not be constructed."
+            )
+            choices_string_list = choices
+            underlines = {s: s for s in choices}
+            break
+    choices_string = " | ".join(choices_string_list)
+    return (choices_string, underlines)
+
+
+def get_user_choice(choices: list[str], prompt: str):
+    choices = [str(s).strip().lower() for s in choices]
+    choices_string, underlines = underlined_choices(choices)
+    user_choice = input(f"{prompt} ({choices_string}) : ")
+    while True:
+        user_choice = user_choice.strip().lower()
+        if user_choice in choices:
+            return user_choice
+        if user_choice in underlines:
+            return underlines[user_choice]
+        user_choice = input(f"Please select a valid option ({choices_string}) : ")
 
 
 def get_user_approval(request: str):
     if request == "update_embeddings":
-        result = input(
-            "(time consuming step) Would you like to update image index to include recent images in search? (\033[4my\033[0mes | \033[4mn\033[0mo) : "
+        result = get_user_choice(
+            choices=["yes", "no"],
+            prompt="(time consuming step) Would you like to update image index to include recent images in search?",
         )
     elif request == "search_embeddings":
-        result = input(
-            "Would you like to search through images? (\033[4my\033[0mes | \033[4mn\033[0mo) : "
+        result = get_user_choice(
+            choices=["yes", "no"], prompt="Would you like to search through images?"
         )
     else:
         message = f"'{request}' is not a valid request option."
         logger.error(message)
         raise ValueError(message)
-    while True:
-        if result.lower() == "yes" or result.lower() == "y":
-            return True
-        elif result.lower() == "no" or result.lower() == "n":
-            return False
-        else:
-            result = input(
-                "Please select a valid option (\033[4my\033[0mes | \033[4mn\033[0mo) : "
-            )
+    if result == "yes":
+        return True
+    if result == "no":
+        return False
 
 
 def parse_query(query: str):
@@ -112,7 +180,7 @@ def tag_search_results(syno: SynoPhotosSharedAPI, tag_id: int, image_ids_to_tag:
 
 def tag_subset(syno: SynoPhotosSharedAPI, tags_created: dict, tag_name: str, k: int):
     # images are provided by search in reverse sorted order by score
-    image_ids_to_remove = tags_created[tag_name]["results"][k:]
+    image_ids_to_remove = tags_created[tag_name]["image_ids"][k:]
     if image_ids_to_remove:
         syno.remove_tags(
             image_ids=image_ids_to_remove,
@@ -120,48 +188,82 @@ def tag_subset(syno: SynoPhotosSharedAPI, tags_created: dict, tag_name: str, k: 
         )
 
 
-def delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
-    for tag_name in tags_created:
+def delete_tags(syno: SynoPhotosSharedAPI, tags: dict[str, int]):
+    for tag_name in tags:
+        logger.info(f"Removing tag `{tag_name}` from all associated images...")
         syno.remove_tags(
-            image_ids=tags_created[tag_name]["results"],
-            tag_ids=tags_created[tag_name]["id"],
+            image_ids=tags[tag_name]["image_ids"],
+            tag_ids=tags[tag_name]["id"],
         )
-        logger.info(f"Tag '{tag_name}' has been deleted.")
+        logger.info(
+            f"Tag '{tag_name}' has been removed from all {len(tags[tag_name]['image_ids'])} images."
+        )
+
+
+def user_input_select_and_delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
+    tags_to_delete = {}
+    for tag in tags_created:
+        option = get_user_choice(
+            choices=["yes", "no"], prompt=f"Would you like to delete tag - {tag}?"
+        )
+        if option == "yes":
+            tags_to_delete[tag] = tags_created[tag]
+    delete_tags(syno, tags_to_delete)
+
+
+def get_tag_id_dict_from_names(
+    syno: SynoPhotosSharedAPI, tag_names: list[str]
+) -> dict[str, int]:
+    all_tags = syno.get_tag_list()
+    return {t["name"]: t["id"] for t in all_tags if t["name"] in tag_names}
+
+
+def user_input_collect_tag_names():
+    tag_names_to_delete = []
+    while True:
+        tag_name = input(f"Enter tag name to delete. Leave empty to exit : ")
+        if not tag_name:
+            logger.info(
+                "Collected tag names to delete. Only tags matching those in Synology Photos will be deleted."
+            )
+            break
+        tag_names_to_delete.append(tag_name)
+    return tag_names_to_delete
+
+
+def user_input_collect_and_delete_tags(syno: SynoPhotosSharedAPI):
+    tags_to_delete = None
+    option = get_user_choice(
+        choices=["manual", "list"],
+        prompt="Would you like to manually enter tags to delete, or list tags in Synology Photos?",
+    )
+    if option == "manual":
+        tag_names_to_delete = user_input_collect_tag_names()
+        if tag_names_to_delete:
+            tags_to_delete = create_tag_image_dict(syno, tag_names=tag_names_to_delete)
+            delete_tags(syno, tags_to_delete)
+        return
+    if option == "list":
+        all_tags_dict = create_tag_image_dict(syno, tag_names=None)
+        user_input_select_and_delete_tags(syno, all_tags_dict)
+        return
 
 
 def user_input_delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
     if not tags_created:
         return
-    option = input(
-        "Would you like to delete tags created in this session? (\033[4ma\033[0mll | \033[4ms\033[0melect | \033[4mn\033[0mone) : "
+    option = get_user_choice(
+        choices=["all", "none", "select"],
+        prompt="Would you like to delete tags created in this session?",
     )
-    while True:
-        if option.lower() == "all" or option.lower() == "a":
-            delete_tags(syno, tags_created)
-            return
-        if option.lower() == "none" or option.lower() == "n":
-            return
-        if option.lower() == "select" or option.lower() == "s":
-            tags_to_delete = {}
-            for tag in tags_created:
-                option2 = input(
-                    f"Would you like to delete tag - {tag} (\033[4my\033[0mes | \033[4mn\033[0mo) : "
-                )
-                while True:
-                    if option2.lower() == "yes" or option2.lower() == "y":
-                        tags_to_delete[tag] = tags_created[tag]
-                        break
-                    elif option2.lower() == "no" or option2.lower() == "n":
-                        break
-                    else:
-                        option2 = input(
-                            "Please select a valid option (\033[4my\033[0mes | \033[4mn\033[0mo) : "
-                        )
-            delete_tags(syno, tags_to_delete)
-            return
-        option = input(
-            "Please select a valid option (\033[4ma\033[0mll | \033[4ms\033[0melect | \033[4mn\033[0mone) : "
-        )
+    if option == "all":
+        delete_tags(syno, tags_created)
+        return
+    if option == "none":
+        return
+    if option == "select":
+        user_input_select_and_delete_tags(syno, tags_created)
+        return
 
 
 def main():
@@ -233,6 +335,13 @@ def main():
         action="store_true",
         help="skip searching workflow. useful to only perform reindexing",
     )
+    parser.add_argument(
+        "--delete_tags",
+        required=False,
+        default=False,
+        action="store_true",
+        help="use the script only to delete tags",
+    )
 
     args = parser.parse_args()
 
@@ -246,6 +355,7 @@ def main():
     verbose = args.verbose
     no_reindex = args.no_reindex
     no_search = args.no_search
+    delete_tags_only = args.delete_tags
 
     utils.configure_logger(
         logger, utils.get_absolute_path_in_container(log_file), verbose=verbose
@@ -270,15 +380,21 @@ def main():
 
     # login into Synology Photos
     syno = SynoPhotosSharedAPI(hostname=hostname)
-    syno.login(trials=5)
+    syno.login(password_trials=5)
 
     tags_created = dict()
     try:
+        if delete_tags_only:
+            user_input_collect_and_delete_tags(syno)
+            return
+
         # create image path tree on synology
         image_id_path_dict = create_image_path_tree(syno)
 
         # load in model to embed search term
+        logger.info(f"Loading ML embeddings model files...")
         model = load_model()
+        logger.info(f"Loaded ML embeddings model files.")
 
         # ask user to update embeddings
         if (not no_reindex) and get_user_approval(request="update_embeddings"):
@@ -311,10 +427,10 @@ def main():
                 break
             # get search term from user
             query, k = get_user_query()
-            if query is None:
+            if not query:
                 logger.info("Exiting search program.")
                 break
-            tag_name = f"nlp_api {query}"
+            tag_name = f"nlp_search {query}"
             # tag images that match search term
             if tag_name in tags_created and len(tags_created[tag_name]["results"]) >= k:
                 tag_subset(syno, tags_created, tag_name, k)
@@ -323,12 +439,13 @@ def main():
                 tag_dict = syno.create_tag(tag_name)
                 tag_id = tag_dict["id"]
                 tag_search_results(syno, tag_id, results)
-                tags_created[tag_name] = dict(results=results, id=tag_id)
+                tags_created[tag_name] = dict(image_ids=results, id=tag_id)
 
             logger.info(f"Tagged {k} images for '{query}'.")
             print(f"Search for tag '{tag_name}' in Synology Photos.")
     except Exception as e:
         logger.error(e)
+        raise e
     finally:
         user_input_delete_tags(syno, tags_created)
         # logout

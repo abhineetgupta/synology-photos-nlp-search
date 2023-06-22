@@ -128,7 +128,7 @@ def configure_logger(
 ):
     if formatter is None:
         formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s"
+            "%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(funcName)s - %(message)s"
         )
     stdout_log_level = logging.INFO
 

@@ -91,11 +91,12 @@ def add_embeddings(
         )
         return scanned_ids, scanned_paths, scanned_emb
     new_images_dict = get_new_images(image_id_path_dict, scanned_ids, n_files)
+    n_new_images = len(new_images_dict)
     new_images_embedded = 0
     while len(new_images_dict):
         images_in_batch = min(emb_batch, len(new_images_dict))
         logger.info(
-            f"PIL reading {new_images_embedded + 1}th to {new_images_embedded + images_in_batch}th images of {len(new_images_dict)} new images..."
+            f"PIL reading {new_images_embedded + 1}th to {new_images_embedded + images_in_batch}th images of {n_new_images} new images..."
         )
         pil_images = []
 
