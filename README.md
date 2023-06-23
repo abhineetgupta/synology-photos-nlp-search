@@ -39,5 +39,5 @@ The first run would require indexing (i.e., generating embeddings for all images
 1. Synology Photos API calls can be slow to process and error out without a lot of information. The script auto-tries a few times before completely exiting the program.
 1. Only `pytorch-cpu` is implemented and tested.
 
-## To do
+## To Do
 1. Update the `Dockerfile` and embeddings generation steps for `pytorch` to use GPU, if available.
