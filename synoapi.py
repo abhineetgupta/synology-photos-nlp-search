@@ -20,9 +20,11 @@ class SynoAPI:
         username: str = None,
         password: str = None,
         mfa: bool = False,
+        api_trials: int = 5,
     ):
         self.url = f"https://{hostname}/{api_path}"
         self.sid = None
+        self.api_trials = api_trials
         if username is not None and password is not None:
             self.sid = self._login(username=username, password=password, mfa=mfa)
 
@@ -31,14 +33,19 @@ class SynoAPI:
         data["api"] = api
         data["method"] = method
         data["version"] = version
-
-        try:
-            response = requests.post(self.url, verify=False, data=data)
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            message = f"Request failed for {response.request.url}: {e}"
-            logger.error(message)
-            raise e
+        trials = max(1, int(self.api_trials))
+        for trial in range(trials):
+            try:
+                response = requests.post(self.url, verify=False, data=data)
+                response.raise_for_status()
+                break
+            except requests.exceptions.HTTPError as e:
+                message = f"Request failed for {response.request.url}: {e}"
+                logger.error(message)
+                if trial >= (trials - 1):
+                    raise e
+                else:
+                    logger.debug(f"Retrying API call for {api}-{method}...")
         return response
 
     def _login(
@@ -46,7 +53,7 @@ class SynoAPI:
         username: str = None,
         password: str = None,
         mfa: bool = True,
-        trials: int = 1,
+        password_trials: int = 1,
         **kwargs,
     ):
         logger.debug("Attempting login...")
@@ -56,35 +63,32 @@ class SynoAPI:
                 logger.error(message)
                 raise ValueError(message)
             username = os.environ["SYNO_USERNAME"]
-        if password is None and (
-            ("SYNO_PASSWORD" not in os.environ) or (not os.environ["SYNO_PASSWORD"])
-        ):
-            password = getpass(
-                prompt=f'Enter password for Synology user "{username}" : '
-            )
-        elif password is None:
-            password = os.environ["SYNO_PASSWORD"]
-        data = dict(account=username, passwd=password)
-        if mfa or ("SYNO_2FA" in os.environ and os.environ["SYNO_2FA"]):
-            otp = input("Enter 2FA code. Leave empty if 2FA is not activated : ")
-            if otp:
-                data["otp_code"] = otp
-                logger.debug("Login authentication with 2FA code.")
 
+        trials = max(1, int(password_trials))
         for trial in range(trials):
-            try:
-                response = self.post_api(
-                    "SYNO.API.Auth", "login", "3", **data, **kwargs
+            if trial > 0:
+                logger.info("Login unsuccessful. Retrying...")
+                password = None
+            if password is None and (
+                ("SYNO_PASSWORD" not in os.environ) or (not os.environ["SYNO_PASSWORD"])
+            ):
+                password = getpass(
+                    prompt=f"Enter password for Synology user `{username}` : "
                 )
+            elif password is None:
+                password = os.environ["SYNO_PASSWORD"]
+            data = dict(account=username, passwd=password)
+            if mfa or trial or ("SYNO_2FA" in os.environ and os.environ["SYNO_2FA"]):
+                otp = input("Enter 2FA code. Leave empty if 2FA is not activated : ")
+                if otp:
+                    data["otp_code"] = otp
+                    logger.debug("Login authentication with 2FA code.")
+
+            response = self.post_api("SYNO.API.Auth", "login", "3", **data, **kwargs)
+
+            response_json = response.json()
+            if response_json.get("success", False):
                 break
-            except requests.exceptions.HTTPError as e:
-                logger.error(e)
-                print("If 2FA is activated, login with `mfa=True`")
-                if trial >= (trials - 1):
-                    raise e
-                else:
-                    print("Retrying login...")
-        response_json = response.json()
         if not (response_json.get("success", False)):
             message = (
                 f"Login request failed with error {response_json['error']['code']}."
@@ -105,12 +109,16 @@ class SynoAPI:
         username: str = None,
         password: str = None,
         mfa: bool = False,
-        trials: int = 1,
+        password_trials: int = 1,
         **kwargs,
     ):
         logger.debug("Attempting login...")
         self.sid = self._login(
-            username=username, password=password, mfa=mfa, trials=trials, **kwargs
+            username=username,
+            password=password,
+            mfa=mfa,
+            password_trials=password_trials,
+            **kwargs,
         )
         logger.info("Logged in.")
 
@@ -148,6 +156,7 @@ class SynoPhotosSharedAPI(SynoAPI):
             password=password,
             mfa=mfa,
         )
+        # max number of items to process per API call
         self._PAGINATION_SIZE = 500
 
     def list_param(self, x):
@@ -354,38 +363,48 @@ class SynoPhotosSharedAPI(SynoAPI):
         logger.debug(f"Adding tag={tag_ids} to images={image_ids}...")
         if not self._is_sid_none(self.sid):
             return None
-        response = self.post_api(
-            "SYNO.FotoTeam.Browse.Item",
-            "add_tag",
-            "1",
-            _sid=self.sid,
-            id=self.list_param(image_ids),
-            tag=self.list_param(tag_ids),
-            **kwargs,
-        )
-        response_json = response.json()
-        if not (response_json.get("success", False)):
-            message = f"Adding tags to images request failed with error {response_json['error']['code']}."
-            logger.error(message)
-            raise requests.exceptions.HTTPError(message)
-        logger.debug(f"Added tag={tag_ids} to images={image_ids}.")
+        while len(image_ids):
+            curr_batch = min(self._PAGINATION_SIZE, len(image_ids))
+            logger.debug(f"Adding tags to {curr_batch} images...")
+            images_batch = image_ids[:curr_batch]
+            response = self.post_api(
+                "SYNO.FotoTeam.Browse.Item",
+                "add_tag",
+                "1",
+                _sid=self.sid,
+                id=self.list_param(images_batch),
+                tag=self.list_param(tag_ids),
+                **kwargs,
+            )
+            response_json = response.json()
+            if not (response_json.get("success", False)):
+                message = f"Adding tags to images request failed with error {response_json['error']['code']}."
+                logger.error(message)
+                raise requests.exceptions.HTTPError(message)
+            logger.debug(f"Added tag={tag_ids} to {curr_batch} images.")
+            image_ids = image_ids[curr_batch:]
 
     def remove_tags(self, image_ids: list = [], tag_ids: list = [], **kwargs):
         logger.debug(f"Removing tag={tag_ids} from images={image_ids}...")
         if not self._is_sid_none(self.sid):
             return None
-        response = self.post_api(
-            "SYNO.FotoTeam.Browse.Item",
-            "remove_tag",
-            "1",
-            _sid=self.sid,
-            id=self.list_param(image_ids),
-            tag=self.list_param(tag_ids),
-            **kwargs,
-        )
-        response_json = response.json()
-        if not (response_json.get("success", False)):
-            message = f"Removing tags from images request failed with error {response_json['error']['code']}."
-            logger.error(message)
-            raise requests.exceptions.HTTPError(message)
-        logger.debug(f"Removed tag={tag_ids} from images={image_ids}.")
+        while len(image_ids):
+            curr_batch = min(self._PAGINATION_SIZE, len(image_ids))
+            logger.debug(f"Removing tags from {curr_batch} images...")
+            images_batch = image_ids[:curr_batch]
+            response = self.post_api(
+                "SYNO.FotoTeam.Browse.Item",
+                "remove_tag",
+                "1",
+                _sid=self.sid,
+                id=self.list_param(images_batch),
+                tag=self.list_param(tag_ids),
+                **kwargs,
+            )
+            response_json = response.json()
+            if not (response_json.get("success", False)):
+                message = f"Removing tags from images request failed with error {response_json['error']['code']}."
+                logger.error(message)
+                raise requests.exceptions.HTTPError(message)
+            logger.debug(f"Removed tag={tag_ids} from {curr_batch} images.")
+            image_ids = image_ids[curr_batch:]

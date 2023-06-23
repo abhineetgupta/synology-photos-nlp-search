@@ -22,8 +22,41 @@ def load_model():
     raise ValueError(message)
 
 
-def create_image_path_tree(syno: SynoPhotosSharedAPI):
+def create_tag_image_dict(
+    syno: SynoPhotosSharedAPI, tag_names: list[str] = None
+) -> dict[str, dict]:
+    # append image ids for a dict of tag names
+    logger.info(f"Collecting image list for tags in Synology Photos...")
+    images = syno.get_image_list(additional=syno.list_param(["tag"]))
+    if not images:
+        logger.info("No images were found.")
+        return None
+
+    if not tag_names:
+        # use all tags
+        all_tags = syno.get_tag_list()
+        if not all_tags:
+            logger.info("No tags were found.")
+            return None
+        tag_names = [t["name"] for t in all_tags]
+
+    tag_names = set(tag_names)
+    result = {}
+    # assign image ids to tag ids
+    for image in images:
+        for tag in image["additional"]["tag"]:
+            if tag["name"] in tag_names:
+                if tag["name"] not in result:
+                    result[tag["name"]] = dict(image_ids=[], id=tag["id"])
+                result[tag["name"]]["image_ids"].append(image["id"])
+
+    logger.info(f"Collected image list for tags in Synology Photos.")
+    return result
+
+
+def create_image_path_tree(syno: SynoPhotosSharedAPI) -> dict[int, str]:
     # get files with their filepaths as dict{filepath:id}
+    logger.info(f"Collecting image list in Synology Photos...")
     images = syno.get_image_list(additional=syno.list_param(["folder"]))
     if not images:
         logger.info("No images were found.")
@@ -34,31 +67,27 @@ def create_image_path_tree(syno: SynoPhotosSharedAPI):
         )
         for image in images
     }
+    logger.info(f"Collected image list in Synology Photos.")
     return result
 
 
 def get_user_approval(request: str):
     if request == "update_embeddings":
-        result = input(
-            "(time consuming step) Would you like to update image index to include recent images in search? (\033[4my\033[0mes | \033[4mn\033[0mo) : "
+        result = utils.get_user_choice(
+            choices=["yes", "no"],
+            prompt="Would you like to update image index to include recent images in search?",
         )
     elif request == "search_embeddings":
-        result = input(
-            "Would you like to search through images? (\033[4my\033[0mes | \033[4mn\033[0mo) : "
+        result = utils.get_user_choice(
+            choices=["yes", "no"], prompt="Would you like to search through images?"
         )
     else:
-        message = f"'{request}' is not a valid request option."
+        message = f"`{request}` is not a valid request option."
         logger.error(message)
         raise ValueError(message)
-    while True:
-        if result.lower() == "yes" or result.lower() == "y":
-            return True
-        elif result.lower() == "no" or result.lower() == "n":
-            return False
-        else:
-            result = input(
-                "Please select a valid option (\033[4my\033[0mes | \033[4mn\033[0mo) : "
-            )
+    if result == "yes":
+        return True
+    return False
 
 
 def parse_query(query: str):
@@ -112,7 +141,7 @@ def tag_search_results(syno: SynoPhotosSharedAPI, tag_id: int, image_ids_to_tag:
 
 def tag_subset(syno: SynoPhotosSharedAPI, tags_created: dict, tag_name: str, k: int):
     # images are provided by search in reverse sorted order by score
-    image_ids_to_remove = tags_created[tag_name]["results"][k:]
+    image_ids_to_remove = tags_created[tag_name]["image_ids"][k:]
     if image_ids_to_remove:
         syno.remove_tags(
             image_ids=image_ids_to_remove,
@@ -120,48 +149,69 @@ def tag_subset(syno: SynoPhotosSharedAPI, tags_created: dict, tag_name: str, k: 
         )
 
 
-def delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
-    for tag_name in tags_created:
+def delete_tags(syno: SynoPhotosSharedAPI, tags: dict[str, int]):
+    for tag_name in tags:
+        logger.info(f"Removing tag `{tag_name}` from all associated images...")
         syno.remove_tags(
-            image_ids=tags_created[tag_name]["results"],
-            tag_ids=tags_created[tag_name]["id"],
+            image_ids=tags[tag_name]["image_ids"],
+            tag_ids=tags[tag_name]["id"],
         )
-        logger.info(f"Tag '{tag_name}' has been deleted.")
+        logger.info(
+            f"Tag `{tag_name}` has been removed from all {len(tags[tag_name]['image_ids'])} images."
+        )
+
+
+def user_input_select_and_delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
+    tags_to_delete = {}
+    for tag in tags_created:
+        option = utils.get_user_choice(
+            choices=["yes", "no"], prompt=f"Would you like to delete tag - `{tag}`?"
+        )
+        if option == "yes":
+            tags_to_delete[tag] = tags_created[tag]
+    delete_tags(syno, tags_to_delete)
+
+
+def user_input_collect_tag_names():
+    tag_names_to_delete = []
+    while True:
+        tag_name = input(f"Enter tag name to delete. Leave empty to exit : ")
+        if not tag_name:
+            logger.info(
+                "Collected tag names to delete. Only tags matching those in Synology Photos will be deleted."
+            )
+            break
+        tag_names_to_delete.append(tag_name)
+    return tag_names_to_delete
+
+
+def user_input_collect_and_delete_tags(syno: SynoPhotosSharedAPI):
+    tags_to_delete = None
+    option = utils.get_user_choice(
+        choices=["manual", "list"],
+        prompt="Would you like to manually enter tags to delete, or choose from list of each tag in Synology Photos?",
+    )
+    if option == "manual":
+        tag_names_to_delete = user_input_collect_tag_names()
+        if tag_names_to_delete:
+            tags_to_delete = create_tag_image_dict(syno, tag_names=tag_names_to_delete)
+            delete_tags(syno, tags_to_delete)
+    elif option == "list":
+        all_tags_dict = create_tag_image_dict(syno, tag_names=None)
+        user_input_select_and_delete_tags(syno, all_tags_dict)
 
 
 def user_input_delete_tags(syno: SynoPhotosSharedAPI, tags_created: dict):
     if not tags_created:
         return
-    option = input(
-        "Would you like to delete tags created in this session? (\033[4ma\033[0mll | \033[4ms\033[0melect | \033[4mn\033[0mone) : "
+    option = utils.get_user_choice(
+        choices=["all", "none", "select"],
+        prompt="Would you like to delete tags created in this session?",
     )
-    while True:
-        if option.lower() == "all" or option.lower() == "a":
-            delete_tags(syno, tags_created)
-            return
-        if option.lower() == "none" or option.lower() == "n":
-            return
-        if option.lower() == "select" or option.lower() == "s":
-            tags_to_delete = {}
-            for tag in tags_created:
-                option2 = input(
-                    f"Would you like to delete tag - {tag} (\033[4my\033[0mes | \033[4mn\033[0mo) : "
-                )
-                while True:
-                    if option2.lower() == "yes" or option2.lower() == "y":
-                        tags_to_delete[tag] = tags_created[tag]
-                        break
-                    elif option2.lower() == "no" or option2.lower() == "n":
-                        break
-                    else:
-                        option2 = input(
-                            "Please select a valid option (\033[4my\033[0mes | \033[4mn\033[0mo) : "
-                        )
-            delete_tags(syno, tags_to_delete)
-            return
-        option = input(
-            "Please select a valid option (\033[4ma\033[0mll | \033[4ms\033[0melect | \033[4mn\033[0mone) : "
-        )
+    if option == "all":
+        delete_tags(syno, tags_created)
+    elif option == "select":
+        user_input_select_and_delete_tags(syno, tags_created)
 
 
 def main():
@@ -176,21 +226,21 @@ def main():
     parser.add_argument(
         "--syno_host",
         type=str,
-        help="url or ip of synology device",
+        help="ip or hostname of Synology server",
     )
     parser.add_argument(
         "--emb_batch",
         required=False,
         type=int,
-        default=1024,
-        help="number of images to embed at a time. default=1024",
+        default=16,
+        help="number of images to embed at a time. default=16",
     )
     parser.add_argument(
         "--nn_batch",
         required=False,
         type=int,
-        default=16,
-        help="batch size used in transformer model. default=16",
+        default=4,
+        help="batch size used in the transformer model. default=4",
     )
     parser.add_argument(
         "--torch_threads",
@@ -217,21 +267,29 @@ def main():
         required=False,
         type=int,
         default=1,
-        help="verbose level for the log file. 0 = warning, 1 = info, 2 = debug",
+        help="verbose level for the log file. 0 = warning, 1 = info, 2 = debug. default=1",
     )
+    # TODO - change no_reindex to update_embeddings
     parser.add_argument(
-        "--no_reindex",
+        "--no_index",
         required=False,
         default=False,
         action="store_true",
-        help="skip reindexing to create embeddings for any recent images before searching",
+        help="skip indexing to create embeddings for any recent images before searching",
     )
     parser.add_argument(
-        "--no_search",
+        "--update_embeddings",
         required=False,
         default=False,
         action="store_true",
-        help="skip searching workflow. useful to only perform reindexing",
+        help="only update embeddings, skipping all other tasks",
+    )
+    parser.add_argument(
+        "--delete_tags",
+        required=False,
+        default=False,
+        action="store_true",
+        help="only delete tags, skipping all other tasks",
     )
 
     args = parser.parse_args()
@@ -244,8 +302,9 @@ def main():
     max_images = args.max_images
     log_file = args.log_file
     verbose = args.verbose
-    no_reindex = args.no_reindex
-    no_search = args.no_search
+    no_index = args.no_index
+    update_embeddings_only = args.update_embeddings
+    delete_tags_only = args.delete_tags
 
     utils.configure_logger(
         logger, utils.get_absolute_path_in_container(log_file), verbose=verbose
@@ -270,18 +329,26 @@ def main():
 
     # login into Synology Photos
     syno = SynoPhotosSharedAPI(hostname=hostname)
-    syno.login(trials=5)
+    syno.login(password_trials=5)
 
     tags_created = dict()
     try:
+        if delete_tags_only:
+            user_input_collect_and_delete_tags(syno)
+            return
+
         # create image path tree on synology
         image_id_path_dict = create_image_path_tree(syno)
 
         # load in model to embed search term
+        logger.info(f"Loading ML embeddings model files...")
         model = load_model()
+        logger.info(f"Loaded ML embeddings model files.")
 
         # ask user to update embeddings
-        if (not no_reindex) and get_user_approval(request="update_embeddings"):
+        if update_embeddings_only or (
+            (not no_index) and get_user_approval(request="update_embeddings")
+        ):
             update_embeddings(
                 model,
                 utils.get_absolute_path_in_container(emb_file),
@@ -291,30 +358,29 @@ def main():
                 nn_batch,
                 max_images,
             )
+        if update_embeddings_only:
+            return
 
         # read in embeddings pkl file
         embedded_images = utils.read_emb_file(
             utils.get_absolute_path_in_container(emb_file)
         )
         if not embedded_images:
-            message = f"There are no embedded images in {emb_file}"
+            message = f"There are no embedded images in `{emb_file}`"
             logger.error(message)
             raise ValueError(message)
         image_ids, embeddings = embedded_images["ids"], embedded_images["embeddings"]
 
         # start search
-        perform_search = True
-        if no_search or (not get_user_approval(request="search_embeddings")):
-            perform_search = False
+        if not get_user_approval(request="search_embeddings"):
+            return
         while True:
-            if not perform_search:
-                break
             # get search term from user
             query, k = get_user_query()
-            if query is None:
+            if not query:
                 logger.info("Exiting search program.")
                 break
-            tag_name = f"nlp_api {query}"
+            tag_name = f"nlp_search {query}"
             # tag images that match search term
             if tag_name in tags_created and len(tags_created[tag_name]["results"]) >= k:
                 tag_subset(syno, tags_created, tag_name, k)
@@ -323,12 +389,13 @@ def main():
                 tag_dict = syno.create_tag(tag_name)
                 tag_id = tag_dict["id"]
                 tag_search_results(syno, tag_id, results)
-                tags_created[tag_name] = dict(results=results, id=tag_id)
+                tags_created[tag_name] = dict(image_ids=results, id=tag_id)
 
-            logger.info(f"Tagged {k} images for '{query}'.")
-            print(f"Search for tag '{tag_name}' in Synology Photos.")
+            logger.info(f"Tagged {k} images for `{query}`.")
+            print(f"Filter for tag `{tag_name}` in Synology Photos.")
     except Exception as e:
         logger.error(e)
+        raise e
     finally:
         user_input_delete_tags(syno, tags_created)
         # logout

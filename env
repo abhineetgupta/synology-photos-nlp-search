@@ -1,5 +1,23 @@
-# location of directory on host containing photos and embeddings pkl file
+## After completing this file, save it as .env 
+
+# Mount the photos directory on Synology network drive to your local machine
+# mounted location of directory on local machine containing photos and embeddings pkl file
 PHOTOS_DIR="/absolute/path/to/photos/dir"
+
+# Synology IP address or hostname
+SYNO_HOST = "1.0.0.1"
+
+# Synology username that has access to the photos directory and Synology Photos
+SYNO_USERNAME="username"
+
+# password for above user. Leaving this empty will prompt for it when running the script
+SYNO_PASSWORD=""
+
+# leave empty if 2fa is not activated for above user, otherwise script will prompt for 2fa code
+SYNO_2FA="true"
+
+
+## Subsequent paramaters can be kept at their default values and are not needed to be changed.
 
 # location and name of the pkl file that has the pre-computed embeddings. Path is relative to PHOTOS_DIR.
 EMB_FILE="photos_embeddings.pkl"
@@ -12,18 +30,6 @@ NN_BATCH=4
 
 # number of threads to use by torch. Set to 1 for no parallelization. Suggest EMB_BATCH / NN_BATCH >= TORCH_THREADS
 TORCH_THREADS=2
-
-# Synology hostname
-SYNO_HOST = "1.0.0.1"
-
-# Synology username that has access to the photos directory and Synology Photos
-SYNO_USERNAME="username"
-
-# password for above user. Leaving this empty will prompt for it when running the script
-SYNO_PASSWORD=""
-
-# leave empty if 2fa is not activated for above user, otherwise script will prompt for 2fa code
-SYNO_2FA="true"
 
 # location and name of the log file to store logs. Path is relative to PHOTOS_DIR. Setting to empty will only log to stdout.
 LOG_FILE="syno_smart_search.log"
