@@ -28,7 +28,7 @@ The first run would require indexing (i.e., generating embeddings for all images
     - To remove existing tags from images (and skip both image indexing and search), use the `--delete_tags` flag.
 
 ## How It Works
-1. Each image is converted to its vector embedding using a bi-modal embeddings ML model - [clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32). Generating embeddings for all images can be a time-consuming process based on compute power of the host machine and the number of images. 
+1. Each image is converted to its vector embedding using a bi-modal transformers-based embeddings ML model - [clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32). Generating embeddings for all images can be a time-consuming process based on compute power of the host machine and the number of images. 
 1. When a search is performed, the search term is converted to a vector embedding using the same model. 
 1. The most similar images to the search term, based on their embeddings, are tagged using the Synology Photos API.
 1. The Synology Photos GUI can then be used to view images with the tag created for each search term.

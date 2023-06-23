@@ -189,7 +189,7 @@ def user_input_collect_and_delete_tags(syno: SynoPhotosSharedAPI):
     tags_to_delete = None
     option = utils.get_user_choice(
         choices=["manual", "list"],
-        prompt="Would you like to manually enter tags to delete, or list tags in Synology Photos?",
+        prompt="Would you like to manually enter tags to delete, or choose from list of each tag in Synology Photos?",
     )
     if option == "manual":
         tag_names_to_delete = user_input_collect_tag_names()
@@ -226,21 +226,21 @@ def main():
     parser.add_argument(
         "--syno_host",
         type=str,
-        help="url or ip of synology device",
+        help="ip or hostname of Synology server",
     )
     parser.add_argument(
         "--emb_batch",
         required=False,
         type=int,
-        default=1024,
-        help="number of images to embed at a time. default=1024",
+        default=16,
+        help="number of images to embed at a time. default=16",
     )
     parser.add_argument(
         "--nn_batch",
         required=False,
         type=int,
-        default=16,
-        help="batch size used in transformer model. default=16",
+        default=4,
+        help="batch size used in the transformer model. default=4",
     )
     parser.add_argument(
         "--torch_threads",
@@ -267,7 +267,7 @@ def main():
         required=False,
         type=int,
         default=1,
-        help="verbose level for the log file. 0 = warning, 1 = info, 2 = debug",
+        help="verbose level for the log file. 0 = warning, 1 = info, 2 = debug. default=1",
     )
     # TODO - change no_reindex to update_embeddings
     parser.add_argument(
@@ -346,7 +346,9 @@ def main():
         logger.info(f"Loaded ML embeddings model files.")
 
         # ask user to update embeddings
-        if update_embeddings_only or ((not no_index) and get_user_approval(request="update_embeddings")):
+        if update_embeddings_only or (
+            (not no_index) and get_user_approval(request="update_embeddings")
+        ):
             update_embeddings(
                 model,
                 utils.get_absolute_path_in_container(emb_file),
@@ -390,7 +392,7 @@ def main():
                 tags_created[tag_name] = dict(image_ids=results, id=tag_id)
 
             logger.info(f"Tagged {k} images for `{query}`.")
-            print(f"Search for tag `{tag_name}` in Synology Photos.")
+            print(f"Filter for tag `{tag_name}` in Synology Photos.")
     except Exception as e:
         logger.error(e)
         raise e
