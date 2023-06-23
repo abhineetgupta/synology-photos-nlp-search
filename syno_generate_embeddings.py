@@ -102,7 +102,7 @@ def add_embeddings(
             logger.info(
                 "Stopping embedding new images. Will only search through already embedded images..."
             )
-            return
+            return scanned_ids, scanned_paths, scanned_emb
     new_images_embedded = 0
     while len(new_images_dict):
         images_in_batch = min(emb_batch, len(new_images_dict))

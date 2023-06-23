@@ -165,16 +165,19 @@ def configure_logger(
     formatter: logging.Formatter = None,
 ):
     if formatter is None:
-        formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(funcName)s - %(message)s"
-        )
+        file_formatter = logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(funcName)s - %(message)s"
+            )
+        stdout_formatter = logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(message)s"
+            )
     stdout_log_level = logging.INFO
 
     logger.setLevel(stdout_log_level)
     # Create stream handler
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setLevel(stdout_log_level)
-    stream_handler.setFormatter(formatter)
+    stream_handler.setFormatter(stdout_formatter)
     logger.addHandler(stream_handler)
 
     if log_file:
@@ -183,9 +186,9 @@ def configure_logger(
         file_log_level = get_log_level(verbose)
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(file_log_level)
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
-        # update logger's log level
+        # update logger's log level to highest priority (lowest integer value)
         if file_log_level < stdout_log_level:
             logger.setLevel(file_log_level)
