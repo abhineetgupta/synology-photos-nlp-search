@@ -20,12 +20,12 @@ The first run would require indexing (i.e., generating embeddings for all images
     
     *Note*: If running for the first time, embeddings will be created for all images in Shared space of Synology Photos. This can be a multi-hours to -days process depending on Docker's compute resources on the host and the number of images.
 1. There are optional parameters that can be used to change the script's behavior - 
-    - To skip indexing any recent images and instead go the the search step directly, `--no_index` flag can be used - 
+    - To skip indexing any recent images and instead go the the search step directly, `--no_update_embeddings` flag can be used - 
         ```
-        docker-compose run --build --rm -i synosearch --no_index
+        docker-compose run --build --rm -i synosearch --no_update_embeddings
         ```
-    - Similarly, to skip search and only generate embeddings, `--update_embeddings` flag can be used.
-    - To remove existing tags from images (and skip both image indexing and search), use the `--delete_tags` flag.
+    - Similarly, to skip search and only generate embeddings, `--update_embeddings_only` flag can be used.
+    - To remove existing tags from images (and skip both image indexing and search), use the `--delete_tags_only` flag.
 
 ## How It Works
 1. Each image is converted to its vector embedding using a bi-modal transformers-based embeddings ML model - [clip-ViT-B-32](https://huggingface.co/sentence-transformers/clip-ViT-B-32). Generating embeddings for all images can be a time-consuming process based on compute power of the host machine and the number of images. 

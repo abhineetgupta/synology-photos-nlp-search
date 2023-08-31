@@ -12,7 +12,6 @@ RUN pip3 install -U pip \
     pip3 install --no-cache-dir \
     black \
     isort \
-    pillow_heif \
     sentence_transformers
 
 # Copy files

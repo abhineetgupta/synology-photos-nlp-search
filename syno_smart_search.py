@@ -54,19 +54,14 @@ def create_tag_image_dict(
     return result
 
 
-def create_image_path_tree(syno: SynoPhotosSharedAPI) -> dict[int, str]:
+def create_image_thumbnail_tree(syno: SynoPhotosSharedAPI) -> dict[int, dict]:
     # get files with their filepaths as dict{filepath:id}
     logger.info(f"Collecting image list in Synology Photos...")
-    images = syno.get_image_list(additional=syno.list_param(["folder"]))
+    images = syno.get_image_list(additional=syno.list_param(["thumbnail"]))
     if not images:
         logger.info("No images were found.")
         return None
-    result = {
-        image["id"]: os.path.join(
-            image["additional"]["folder"].strip("/"), image["filename"]
-        )
-        for image in images
-    }
+    result = {image["id"]: image["additional"]["thumbnail"] for image in images}
     logger.info(f"Collected image list in Synology Photos.")
     return result
 
@@ -269,23 +264,22 @@ def main():
         default=1,
         help="verbose level for the log file. 0 = warning, 1 = info, 2 = debug. default=1",
     )
-    # TODO - change no_reindex to update_embeddings
     parser.add_argument(
-        "--no_index",
+        "--no_update_embeddings",
         required=False,
         default=False,
         action="store_true",
-        help="skip indexing to create embeddings for any recent images before searching",
+        help="skip creating embeddings for any recent images before searching",
     )
     parser.add_argument(
-        "--update_embeddings",
+        "--update_embeddings_only",
         required=False,
         default=False,
         action="store_true",
         help="only update embeddings, skipping all other tasks",
     )
     parser.add_argument(
-        "--delete_tags",
+        "--delete_tags_only",
         required=False,
         default=False,
         action="store_true",
@@ -302,9 +296,9 @@ def main():
     max_images = args.max_images
     log_file = args.log_file
     verbose = args.verbose
-    no_index = args.no_index
-    update_embeddings_only = args.update_embeddings
-    delete_tags_only = args.delete_tags
+    no_index = args.no_update_embeddings
+    update_embeddings_only = args.update_embeddings_only
+    delete_tags_only = args.delete_tags_only
 
     utils.configure_logger(
         logger, utils.get_absolute_path_in_container(log_file), verbose=verbose
@@ -338,7 +332,7 @@ def main():
             return
 
         # create image path tree on synology
-        image_id_path_dict = create_image_path_tree(syno)
+        image_id_thumbnail_dict = create_image_thumbnail_tree(syno)
 
         # load in model to embed search term
         logger.info(f"Loading ML embeddings model files...")
@@ -351,8 +345,9 @@ def main():
         ):
             update_embeddings(
                 model,
+                syno,
                 utils.get_absolute_path_in_container(emb_file),
-                image_id_path_dict,
+                image_id_thumbnail_dict,
                 torch_threads,
                 emb_batch,
                 nn_batch,
