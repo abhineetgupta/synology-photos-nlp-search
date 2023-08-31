@@ -3,13 +3,8 @@ import os
 import pickle
 import sys
 
-import PIL
 import torch
-from PIL import Image
-from pillow_heif import register_heif_opener
-
-# for reading heic images
-register_heif_opener()
+from PIL import Image, UnidentifiedImageError
 
 # create logger
 logger = logging.getLogger(__name__)
@@ -91,14 +86,11 @@ def read_emb_file(emb_file: str):
                 msg = f"{emb_file} exists but does not contain any images."
                 logger.error(msg)
                 raise ValueError(msg)
-            scanned_ids, scanned_paths, scanned_emb = (
+            scanned_ids, scanned_emb = (
                 scanned_images["ids"],
-                scanned_images["paths"],
                 scanned_images["embeddings"],
             )
-            if len(scanned_ids) != len(scanned_paths) or len(
-                scanned_ids
-            ) != scanned_emb.size(dim=0):
+            if len(scanned_ids) != scanned_emb.size(dim=0):
                 msg = f"Length of images does not match length of embeddings in {emb_file}. File is likely corrupted, must be deleted, and recreated."
                 logger.error(msg)
                 raise ValueError(msg)
@@ -112,36 +104,37 @@ def read_emb_file(emb_file: str):
     return scanned_images
 
 
-def overwrite_emb_file(
-    emb_file: str, scanned_ids: list, scanned_paths: list, scanned_emb: torch.Tensor
-):
-    if len(scanned_ids) != len(scanned_paths) or len(scanned_ids) != scanned_emb.size(
-        dim=0
-    ):
+def overwrite_emb_file(emb_file: str, scanned_ids: list, scanned_emb: torch.Tensor):
+    if len(scanned_ids) != scanned_emb.size(dim=0):
         msg = f"Length of images does not match length of embeddings to write out. {emb_file} will not be written out to prevent corruption."
         logger.error(msg)
         raise ValueError(msg)
-    if (not len(scanned_ids)) or (not len(scanned_paths)):
+    if not len(scanned_ids):
         logger.info(
             f"Provided 0 images. {emb_file} will not be written out to prevent corruption."
         )
     with open(emb_file, "wb") as fOut:
-        scanned_images = dict(
-            ids=scanned_ids, paths=scanned_paths, embeddings=scanned_emb
-        )
+        scanned_images = dict(ids=scanned_ids, embeddings=scanned_emb)
         pickle.dump(scanned_images, fOut, pickle.HIGHEST_PROTOCOL)
         logger.info(f"{emb_file} written out with {len(scanned_ids)} images.")
     return
 
 
-def pil_read_images(image_path: str):
-    try:
-        img = Image.open(image_path)
-    except PIL.UnidentifiedImageError:
-        logger.warn(
-            f"Image could not be read and will be retried in next batch - {image_path}"
+def pil_read_images(image_path_or_bytes: str):
+    if image_path_or_bytes is None or not image_path_or_bytes:
+        logger.debug(
+            f"Received None or empty object."
         )
-        img = None
+        return None
+    img = None
+    try:
+        img = Image.open(image_path_or_bytes)
+    except UnidentifiedImageError:
+        logger.warn(
+            f"Image could not be read and will be retried in next batch - {image_path_or_bytes}"
+        )
+    except Exception as e:
+        logger.warn(f"Unknown exception -\n{e}")
     return img
 
 
@@ -166,11 +159,11 @@ def configure_logger(
 ):
     if formatter is None:
         file_formatter = logging.Formatter(
-                "%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(funcName)s - %(message)s"
-            )
+            "%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(funcName)s - %(message)s"
+        )
         stdout_formatter = logging.Formatter(
-                "%(asctime)s - %(levelname)s - %(message)s"
-            )
+            "%(asctime)s - %(levelname)s - %(message)s"
+        )
     stdout_log_level = logging.INFO
 
     logger.setLevel(stdout_log_level)

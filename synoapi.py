@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from getpass import getpass
+from io import BytesIO
 
 import requests
 import urllib3
@@ -358,6 +359,39 @@ class SynoPhotosSharedAPI(SynoAPI):
             result.extend(response_json["data"]["list"])
         logger.debug("Got tag list successfully.")
         return result
+
+    def get_thumbnail(self, thumbnail, **kwargs):
+        logger.debug(f"Getting thumbnail for unit_id={thumbnail['unit_id']}...")
+        if not self._is_sid_none(self.sid):
+            return None
+        for size in ["xl", "m", "sm"]:
+            if thumbnail[size].lower() == "broken":
+                message = f"Thumbnail is broken for for unit_id={thumbnail['unit_id']}, size={size}."
+                logger.warning(message)
+                continue
+            response = self.post_api(
+                "SYNO.FotoTeam.Thumbnail",
+                "get",
+                "1",
+                _sid=self.sid,
+                id=thumbnail["unit_id"],
+                type="unit",
+                size=size,
+                cache_key=thumbnail["cache_key"],
+                **kwargs,
+            )
+            if isinstance(response.text, dict) and not response.text.get(
+                "success", True
+            ):
+                # request failed
+                message = f"Thumbnail request for unit_id={thumbnail['unit_id']}, size={size} failed with error {response.text.get['error']['code']} - {response.text.get['error']['errors']}."
+                logger.warning(message)
+            else:
+                logger.debug(
+                    f"Got thumbnail for unit_id={thumbnail['unit_id']}, size={size}."
+                )
+                return BytesIO(response.content)
+        return None
 
     def add_tags(self, image_ids: list = [], tag_ids: list = [], **kwargs):
         logger.debug(f"Adding tag={tag_ids} to images={image_ids}...")
